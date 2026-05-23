@@ -1,0 +1,7 @@
+.*
+*.wav
+*.mp4
+
+!.gitignore
+
+*/*
