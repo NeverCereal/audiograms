@@ -163,13 +163,15 @@ def build_ffmpeg_cmd(args, sub_filter: str, out_path: str,
     w, h = args.width, args.height
 
     if not args.no_waveform:
-        inputs = ["-i", args.audio]
+        inputs = ["-f", "lavfi", "-i", f"color=c={bg}:s={w}x{h}:r={args.fps}", "-i", args.audio]
         vfilter = (
-            f"[0:a]showwaves=s={w}x{h}:mode=cline:rate={args.fps}"
-            f":colors={waveform_color}[vid]"
+            f"[1:a]showwaves=s={w}x{h}:mode=cline:rate={args.fps}"
+            f":colors={waveform_color}"
+            f",colorkey=black:0.05:0.0[wave];"
+            f"[0:v][wave]overlay=format=auto:shortest=1[vid]"
         )
         vid = "[vid]"
-        amap = "0:a"
+        amap = "1:a"
         shortest = False
     elif args.bg_image:
         inputs = ["-loop", "1", "-i", args.bg_image, "-i", args.audio]
@@ -187,7 +189,8 @@ def build_ffmpeg_cmd(args, sub_filter: str, out_path: str,
         amap = "1:a"
         shortest = True
 
-    filter_graph = f"{vid}{sub_filter},format=yuv420p[out]"
+    sub_part = sub_filter if sub_filter else "null"
+    filter_graph = f"{vid}{sub_part},format=yuv420p[out]"
     if vfilter:
         filter_graph = f"{vfilter};{filter_graph}"
 
@@ -264,7 +267,8 @@ def main():
     stem = Path(args.audio).stem
     out_dir = Path(f"{stem}-out")
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = str(out_dir / f"{stem}.mp4")
+    subs_path = str(out_dir / f"{stem}-subs.mp4")
+    no_subs_path = str(out_dir / f"{stem}.mp4")
 
     font = resolve_font(args.font)
     ass_path = srt_to_ass(
@@ -272,9 +276,9 @@ def main():
         font, args.font_size, sub_ass_color, outline_ass_color)
     try:
         sub_filter = f"subtitles='{ass_path}':original_size={args.width}x{args.height}"
-        cmd = build_ffmpeg_cmd(args, sub_filter, out_path, args.bg, waveform_color)
+        cmd = build_ffmpeg_cmd(args, sub_filter, subs_path, args.bg, waveform_color)
 
-        print(f"Generating audiogram: {out_path}")
+        print(f"Generating audiogram (with subtitles): {subs_path}")
         print(f"  Audio: {args.audio}")
         print(f"  Captions: {args.subtitles}")
         print(f"  Size: {args.width}x{args.height} @ {args.fps}fps")
@@ -286,7 +290,16 @@ def main():
         if result.returncode != 0:
             sys.exit(f"ffmpeg failed with code {result.returncode}")
 
-        print(f"Done: {out_path}")
+        print(f"Done: {subs_path}")
+
+        cmd_no_subs = build_ffmpeg_cmd(args, "", no_subs_path, args.bg, waveform_color)
+        print(f"\nGenerating audiogram (no subtitles): {no_subs_path}")
+        result_no_subs = subprocess.run(cmd_no_subs, capture_output=True, text=True)
+        if result_no_subs.stderr:
+            print(f"ffmpeg messages:\n{result_no_subs.stderr}")
+        if result_no_subs.returncode != 0:
+            sys.exit(f"ffmpeg (no subs) failed with code {result_no_subs.returncode}")
+        print(f"Done: {no_subs_path}")
     finally:
         os.unlink(ass_path)
 

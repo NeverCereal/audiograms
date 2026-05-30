@@ -21,15 +21,24 @@ if [ ! -d "$VENV_DIR" ]; then
     echo "Creating virtualenv at $VENV_DIR ..."
     python3 -m venv "$VENV_DIR"
 fi
-source "$VENV_DIR/bin/activate"
+# shellcheck disable=SC1091
+. "$VENV_DIR/bin/activate"
+PY="$VENV_DIR/bin/python"
+
+# Make sure pip is available in the venv
+if ! "$PY" -m pip --version &>/dev/null; then
+    echo "  Installing pip in virtualenv ..."
+    "$PY" -m ensurepip --upgrade &>/dev/null || true
+fi
 
 # ---- GPU Detection & Torch Install ----
 setup_deps() {
     echo "Checking dependencies ..."
-    pip install -q --upgrade pip
+    # Use $PY -m pip so we work even when venv was created without the pip package
+    "$PY" -m pip install -q --upgrade pip
 
     # Check if torch is already installed
-    if python -c "import torch" &>/dev/null; then
+    if "$PY" -c "import torch" &>/dev/null; then
         echo "  PyTorch already installed."
     else
         echo "Detecting GPU environment..."
@@ -51,15 +60,15 @@ setup_deps() {
 
         echo "Installing PyTorch ..."
         if [ -n "$TORCH_URL" ]; then
-            pip install -q torch --index-url "$TORCH_URL"
+            "$PY" -m pip install -q torch --index-url "$TORCH_URL"
         else
-            pip install -q torch
+            "$PY" -m pip install -q torch
         fi
     fi
 
-    if ! python -c "import whisper" &>/dev/null; then
+    if ! "$PY" -c "import whisper" &>/dev/null; then
         echo "Installing openai-whisper ..."
-        pip install -q openai-whisper
+        "$PY" -m pip install -q openai-whisper
     fi
 }
 
@@ -103,7 +112,7 @@ case "$CMD" in
         MODEL="${3:-large-v3}"
         setup_deps
         echo "Transcribing: $AUDIO (model=$MODEL)"
-        python "$SCRIPT_DIR/transcribe.py" "$AUDIO" -f srt vtt -m "$MODEL"
+        "$PY" "$SCRIPT_DIR/transcribe.py" "$AUDIO" -f srt vtt -m "$MODEL"
         ;;
     audiogram)
         AUDIO="${2:-}"
@@ -118,7 +127,7 @@ case "$CMD" in
             exit 1
         fi
         echo "Generating audiogram: $AUDIO + $SRT"
-        python "$SCRIPT_DIR/audiogram.py" "$AUDIO" "$SRT" "$@"
+        "$PY" "$SCRIPT_DIR/audiogram.py" "$AUDIO" "$SRT" "$@"
         ;;
     *)
         echo "Unknown command: $CMD"
